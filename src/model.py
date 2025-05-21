@@ -1,0 +1,211 @@
+import numpy as np
+import pandas as pd
+from collections import Counter
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, mean_absolute_error
+
+def weighted_gini(y, K):
+    n = len(y)
+    if n == 0:
+        return 0.0
+    counts = np.bincount(y, minlength=K+1)[1:]
+    p = counts / counts.sum()
+    Iw = sum(p[i] * p[j] * abs((i+1)-(j+1))
+             for i in range(K) for j in range(K))
+    return Iw
+
+class WeightedDecisionTreeClassifier:
+    def __init__(self, max_depth=10000, min_samples_split=2, 
+                 max_features=None, K=10):
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.max_features = max_features
+        self.K = K
+        self.tree = None
+
+    class Node:
+        def __init__(self, feature=None, thresh=None,
+                     left=None, right=None, value=None):
+            self.feature = feature
+            self.thresh = thresh
+            self.left = left
+            self.right = right
+            self.value = value
+
+    def fit(self, X, y):
+        self.max_features = self.max_features or X.shape[1]
+        self.tree = self._grow_tree(X, y, 0)
+        return self
+
+    def _grow_tree(self, X, y, depth):
+        # stopping
+        if (depth >= self.max_depth 
+            or len(y) < self.min_samples_split 
+            or len(np.unique(y)) == 1):
+            return self.Node(value=self._leaf_value(y))
+        
+        feat_idxs = np.random.choice(
+            X.shape[1], self.max_features, replace=False)
+        parent_impurity = weighted_gini(y, self.K)
+        
+        best_gain, best_feat, best_thresh = -1, None, None
+        for feat in feat_idxs:
+            for t in np.unique(X[:, feat]):
+                left_mask = X[:, feat] <= t
+                if not left_mask.any() or left_mask.all():
+                    continue
+                ig_left = weighted_gini(y[left_mask], self.K)
+                ig_right = weighted_gini(y[~left_mask], self.K)
+                n, n_l, n_r = len(y), left_mask.sum(), left_mask.size - left_mask.sum()
+                gain = parent_impurity - (n_l/n)*ig_left - (n_r/n)*ig_right
+                if gain > best_gain:
+                    best_gain, best_feat, best_thresh = gain, feat, t
+        
+        if best_gain <= 0:
+            return self.Node(value=self._leaf_value(y))
+        
+        left_mask = X[:, best_feat] <= best_thresh
+        left = self._grow_tree(X[left_mask], y[left_mask], depth+1)
+        right = self._grow_tree(X[~left_mask], y[~left_mask], depth+1)
+        return self.Node(feature=best_feat, thresh=best_thresh, left=left, right=right)
+
+    def _leaf_value(self, y):
+        counts = Counter(y)
+        total = sum(counts.values())
+        p = {k: counts[k]/total for k in counts}
+        best_k, best_cost = None, float('inf')
+        for k in range(1, self.K+1):
+            cost = sum(p.get(j,0) * abs(k-j) for j in range(1, self.K+1))
+            if cost < best_cost:
+                best_cost, best_k = cost, k
+        return best_k
+
+    def predict_one(self, x):
+        node = self.tree
+        while node.value is None:
+            if x[node.feature] <= node.thresh:
+                node = node.left
+            else:
+                node = node.right
+        return node.value
+
+    def predict(self, X):
+        return np.array([self.predict_one(x) for x in X])
+
+class WeightedRandomForestClassifier:
+    def __init__(self, n_estimators=50, **tree_kwargs):
+        self.n_estimators = n_estimators
+        self.tree_kwargs = tree_kwargs
+        self.trees = []
+
+    def fit(self, X, y):
+        n_samples = X.shape[0]
+        for _ in range(self.n_estimators):
+            idxs = np.random.choice(n_samples, n_samples, replace=True)
+            tree = WeightedDecisionTreeClassifier(**self.tree_kwargs)
+            tree.fit(X[idxs], y[idxs])
+            self.trees.append(tree)
+        return self
+
+    def predict(self, X):
+        all_preds = np.stack([t.predict(X) for t in self.trees], axis=1)
+        return np.round(np.median(all_preds, axis=1)).astype(int)
+
+def absolute_loss(y_true, y_pred):
+    return np.sum(np.abs(y_true - y_pred))
+
+def train_baseline_binary_rf(X_train, y_train,
+                             threshold=7,
+                             n_estimators=50,
+                             max_depth=None,
+                             min_samples_split=2,
+                             max_features=None,
+                             random_state=1):
+    """
+    Train a binary RF that treats y>=threshold as positive (1)
+    and y==1 as negative (0), dropping all other classes.
+    """
+    mask = (y_train >= threshold) | (y_train == 1)
+    print(f"\n\nEffective data size {mask.sum()} after discarding samples, originally {len(y_train)} samples.")
+    Xb, yb = X_train[mask], y_train[mask]
+    yb_bin = (yb >= threshold).astype(int)
+    clf = RandomForestClassifier(n_estimators=n_estimators,
+                                 max_depth=max_depth,
+                                 min_samples_split=min_samples_split,
+                                 max_features=max_features,
+                                 random_state=random_state)
+    clf.fit(Xb, yb_bin)
+    return clf
+
+# --- Main driver: compare weighted vs vanilla RF ---
+if __name__ == "__main__":
+    # Generate data
+    X, y = generate_ordinal_data(n=2400, K=10)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.333, random_state=1
+    )
+    
+    # Fit weighted RF
+    wclf = WeightedRandomForestClassifier(
+        n_estimators=20, max_depth=8, min_samples_split=5, 
+        max_features=10, K=10
+    )
+    wclf.fit(X_train, y_train)
+    y_pred_w = wclf.predict(X_test)
+    
+    # Fit vanilla RF
+    vclf = RandomForestClassifier(
+        n_estimators=20, max_depth=8, min_samples_split=5,
+        max_features=10, random_state=195
+    )
+    vclf.fit(X_train, y_train)
+    y_pred_v = vclf.predict(X_test)
+
+    '''
+    # Fit binarized RF
+    bclf = train_baseline_binary_rf(
+        X_train, y_train,
+        threshold=7,
+        n_estimators=20,
+        max_depth=6,
+        min_samples_split=5,
+        max_features=8,
+        random_state=1
+    )
+
+    mask_test = (y_test >= 7) | (y_test == 1)
+    X_test_bin  = X_test[mask_test]
+    y_test_bin  = (y_test[mask_test] >= 7).astype(int)
+
+    # baseline predictions
+    y_pred_b = bclf.predict(X_test_bin)
+
+    print("Baseline binary RF:")
+    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_b))
+    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_b))
+    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_b))
+
+    # now binarize our multiclass outputs
+    y_pred_w_bin = (y_pred_w[mask_test] >= 7).astype(int)
+    y_pred_v_bin = (y_pred_v[mask_test] >= 7).astype(int)
+
+    print("\nWeighted RF (binarized):")
+    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_w_bin))
+    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_w_bin))
+    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_w_bin))
+
+    print("\nVanilla RF (binarized):")
+    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_v_bin))
+    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_v_bin))
+    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_v_bin))
+    '''
+    
+    # # Evaluate
+    print("Weighted RF:")
+    print("  Accuracy:", accuracy_score(y_test, y_pred_w))
+    print("  MAE:", mean_absolute_error(y_test, y_pred_w))
+    
+    print("\nVanilla RF:")
+    print("  Accuracy:", accuracy_score(y_test, y_pred_v))
+    print("  MAE:", mean_absolute_error(y_test, y_pred_v))
