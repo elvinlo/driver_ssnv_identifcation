@@ -1,2 +1,2 @@
-# driver_ssnv_identifcation
-Stat 195 Final Project, Spring 2025
+# Ordinal Decision Trees for Identifying Driver Synonymous Mutations
+This project improves upon previous works applying tree-based ML algorithms for identifying driver synonymous mutations in the human genome. In particular, we reformulate a binary classification problem presented in previous works as a multi-class classification problem, where the classes have ordinal structure. To solve this task, we then modify the standard decision tree model to exploit this ordinal structure (i.e., we modify the standard Gini coefficient by weighting it using the ordinal structure in the data classes), and accordingly construct ordinal weighted random forests.
