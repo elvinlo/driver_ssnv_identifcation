@@ -112,9 +112,6 @@ class WeightedRandomForestClassifier:
         all_preds = np.stack([t.predict(X) for t in self.trees], axis=1)
         return np.round(np.median(all_preds, axis=1)).astype(int)
 
-def absolute_loss(y_true, y_pred):
-    return np.sum(np.abs(y_true - y_pred))
-
 def train_baseline_binary_rf(X_train, y_train,
                              threshold=7,
                              n_estimators=50,
@@ -127,7 +124,7 @@ def train_baseline_binary_rf(X_train, y_train,
     and y==1 as negative (0), dropping all other classes.
     """
     mask = (y_train >= threshold) | (y_train == 1)
-    print(f"\n\nEffective data size {mask.sum()} after discarding samples, originally {len(y_train)} samples.")
+    # print(f"\n\nEffective data size {mask.sum()} after discarding samples, originally {len(y_train)} samples.")
     Xb, yb = X_train[mask], y_train[mask]
     yb_bin = (yb >= threshold).astype(int)
     clf = RandomForestClassifier(n_estimators=n_estimators,
@@ -137,75 +134,3 @@ def train_baseline_binary_rf(X_train, y_train,
                                  random_state=random_state)
     clf.fit(Xb, yb_bin)
     return clf
-
-# --- Main driver: compare weighted vs vanilla RF ---
-if __name__ == "__main__":
-    # Generate data
-    X, y = generate_ordinal_data(n=2400, K=10)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.333, random_state=1
-    )
-    
-    # Fit weighted RF
-    wclf = WeightedRandomForestClassifier(
-        n_estimators=20, max_depth=8, min_samples_split=5, 
-        max_features=10, K=10
-    )
-    wclf.fit(X_train, y_train)
-    y_pred_w = wclf.predict(X_test)
-    
-    # Fit vanilla RF
-    vclf = RandomForestClassifier(
-        n_estimators=20, max_depth=8, min_samples_split=5,
-        max_features=10, random_state=195
-    )
-    vclf.fit(X_train, y_train)
-    y_pred_v = vclf.predict(X_test)
-
-    '''
-    # Fit binarized RF
-    bclf = train_baseline_binary_rf(
-        X_train, y_train,
-        threshold=7,
-        n_estimators=20,
-        max_depth=6,
-        min_samples_split=5,
-        max_features=8,
-        random_state=1
-    )
-
-    mask_test = (y_test >= 7) | (y_test == 1)
-    X_test_bin  = X_test[mask_test]
-    y_test_bin  = (y_test[mask_test] >= 7).astype(int)
-
-    # baseline predictions
-    y_pred_b = bclf.predict(X_test_bin)
-
-    print("Baseline binary RF:")
-    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_b))
-    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_b))
-    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_b))
-
-    # now binarize our multiclass outputs
-    y_pred_w_bin = (y_pred_w[mask_test] >= 7).astype(int)
-    y_pred_v_bin = (y_pred_v[mask_test] >= 7).astype(int)
-
-    print("\nWeighted RF (binarized):")
-    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_w_bin))
-    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_w_bin))
-    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_w_bin))
-
-    print("\nVanilla RF (binarized):")
-    print("  Accuracy:", accuracy_score(y_test_bin, y_pred_v_bin))
-    print("  MAE:",     mean_absolute_error(y_test_bin, y_pred_v_bin))
-    print("  Total Absolute Error:", absolute_loss(y_test_bin, y_pred_v_bin))
-    '''
-    
-    # # Evaluate
-    print("Weighted RF:")
-    print("  Accuracy:", accuracy_score(y_test, y_pred_w))
-    print("  MAE:", mean_absolute_error(y_test, y_pred_w))
-    
-    print("\nVanilla RF:")
-    print("  Accuracy:", accuracy_score(y_test, y_pred_v))
-    print("  MAE:", mean_absolute_error(y_test, y_pred_v))

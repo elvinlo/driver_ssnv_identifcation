@@ -9,41 +9,23 @@ from model import WeightedRandomForestClassifier, train_baseline_binary_rf
 from simulation import generate_driver_mutation_data
 
 
-n_trees = 100
-N = 6000
-
+def evaluate(model, X, y):
+    pred      = model.predict(X)
+    acc       = accuracy_score(y, pred)
+    mae       = mean_absolute_error(y, pred)
+    stderr_mae = np.std(np.abs(y - pred), ddof=1) / np.sqrt(len(y))
+    return pred, (acc, mae, stderr_mae)
 
 def plot_confusion_matrix(y_true, y_pred, classes,
                           normalize: bool = False,
                           title: str = None,
                           filename: str = "confusion_matrix.png"):
-    """
-    Compute and plot a confusion matrix.
-
-    Parameters
-    ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth labels.
-    y_pred : array-like of shape (n_samples,)
-        Predicted labels.
-    classes : list or array of shape (n_classes,)
-        List of class labels (in desired order on the axes).
-    normalize : bool, default=False
-        If True, normalize each row to sum to 1.
-    title : str, optional
-        Title for the plot.
-    filename : str, default="confusion_matrix.png"
-        Path where the figure will be saved.
-    """
-    # 1) Compute raw counts
     cm = confusion_matrix(y_true, y_pred, labels=classes)
-    # 2) Normalize if requested
     if normalize:
         # avoid division by zero
         row_sums = cm.sum(axis=1)[:, np.newaxis]
         cm = cm.astype(float) / np.where(row_sums==0, 1, row_sums)
 
-    # 3) Plot
     fig, ax = plt.subplots()
     ax.imshow(cm)  
     ax.set_xticks(np.arange(len(classes)))
@@ -55,7 +37,6 @@ def plot_confusion_matrix(y_true, y_pred, classes,
     if title:
         ax.set_title(title)
 
-    # 4) Annotate each cell
     fmt = ".2f" if normalize else "d"
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
@@ -66,129 +47,16 @@ def plot_confusion_matrix(y_true, y_pred, classes,
     fig.savefig(filename)
     plt.close(fig)
 
-X, y = generate_driver_mutation_data(
-    n=N,
-    K=10,
-    decay=0.80,
-    random_state=42          # fix seed for reproducibility
-)
-
-# X = X.to_numpy(dtype=float)
-y = y.astype(int)
-
-X_tr, X_te, y_tr, y_te = train_test_split(
-    X, y,
-    test_size=0.30,
-    stratify=y,
-    random_state=1
-)
-
-# fit the multi-class models
-base_params = dict(
-    n_estimators   = n_trees,
-    max_depth      = None,
-    min_samples_split = 2,
-    min_samples_leaf  = 1,
-    random_state   = 1,
-    n_jobs         = -1,
-    max_features = 5
-)
-
-rf  = RandomForestClassifier(**base_params)
-wrf = WeightedRandomForestClassifier(n_estimators=n_trees, max_features=5)
-
-rf .fit(X_tr, y_tr)
-wrf.fit(X_tr, y_tr)
-
-# ---------------------------------------------------------------------
-# 4) Predictions & metrics
-# ---------------------------------------------------------------------
-def evaluate(model, X, y):
-    pred      = model.predict(X)
-    acc       = accuracy_score(y, pred)
-    mae       = mean_absolute_error(y, pred)
-    stderr_mae = np.std(np.abs(y - pred), ddof=1) / np.sqrt(len(y))
-    return pred, (acc, mae, stderr_mae)
-
-y_pred_rf, metrics_rf  = evaluate(rf , X_te, y_te)
-y_pred_wrf, metrics_wrf = evaluate(wrf, X_te, y_te)
-
-# ---------------------------------------------------------------------
-# 5) Nicely formatted output
-# ---------------------------------------------------------------------
-header = f"{'Model':<18}  {'Accuracy':>9}  {'MAE':>8}  {'SE(MAE)':>9}"
-print(header)
-print("-" * len(header))
-print(f"{'RandomForest':<18}  {metrics_rf [0]:9.3f}  {metrics_rf [1]:8.4f}  {metrics_rf [2]:9.4f}")
-print(f"{'WeightedRF':<18}  {metrics_wrf[0]:9.3f}  {metrics_wrf[1]:8.4f}  {metrics_wrf[2]:9.4f}")
-
-
-classes = np.arange(1, 11)  # [1,2,…,10]
-
-# For the standard RF
-plot_confusion_matrix(
-    y_true   = y_te,
-    y_pred   = y_pred_rf,
-    classes  = classes,
-    normalize= False,
-    title    = "RandomForest Confusion Matrix",
-    filename = "cm_rf.png"
-)
-
-# For the weighted RF
-plot_confusion_matrix(
-    y_true   = y_te,
-    y_pred   = y_pred_wrf,
-    classes  = classes,
-    normalize= False,
-    title    = "WeightedRF Confusion Matrix",
-    filename = "cm_wrf.png"
-)
-
-
-# Binarized evaluations
-
-brf = train_baseline_binary_rf(
-    X_tr, y_tr,
-    threshold=7,
-    n_estimators=n_trees,
-    max_depth=None,
-    min_samples_split=2,
-    max_features=None,
-    random_state=1
-)
-
-mask_te = (y_te >= 7) | (y_te == 1)
-X_te_bin  = X_te[mask_te]
-y_te_bin  = (y_te[mask_te] >= 7).astype(int)
-
-# binarized predictions
-y_pred_brf = brf.predict(X_te_bin)
-y_pred_wrf_bin = (y_pred_wrf[mask_te] >= 6).astype(int)
-y_pred_rf_bin = (y_pred_rf[mask_te] >= 6).astype(int)
-
-print("Baseline binary RF accuracy    :", accuracy_score(y_te_bin, y_pred_brf))
-print("Weighted RF binarized accuracy :", accuracy_score(y_te_bin, y_pred_wrf_bin))
-print("Vanilla RF binarized accuracy  :", accuracy_score(y_te_bin, y_pred_rf_bin))
-
-
-
-
-
-
 def plot_bin_true_multi_pred(y_true_bin, y_pred_mc, mc_classes,
                              normalize=False,
                              title=None,
                              filename="confusion_matrix_bin_vs_mc.png"):
     """
     y_true_bin : array of 0/1
-    y_pred_mc  : array of 1…K (same length)
+    y_pred_mc  : array of 1...K (same length)
     mc_classes : list/array of the multiclass labels (e.g. [1,2,…,10])
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
 
-    # build 2×len(mc_classes) matrix
     cm = np.zeros((2, len(mc_classes)), 
                   dtype=float if normalize else int)
     for i, t in enumerate([0, 1]):
@@ -223,10 +91,102 @@ def plot_bin_true_multi_pred(y_true_bin, y_pred_mc, mc_classes,
     plt.close(fig)
 
 
-# --- after your print(...) lines: ---
+
+
+
+# generate data
+n_trees = 100
+N = 6000
+
+X, y = generate_driver_mutation_data(
+    n=N,
+    K=10,
+    decay=0.80,
+    random_state=42
+)
+y = y.astype(int)
+
+X_tr, X_te, y_tr, y_te = train_test_split(
+    X, y,
+    test_size=0.30,
+    stratify=y,
+    random_state=1
+)
+
+# fit and evaluate the multi-class models
+base_params = dict(
+    n_estimators   = n_trees,
+    max_depth      = None,
+    min_samples_split = 2,
+    min_samples_leaf  = 1,
+    random_state   = 1,
+    n_jobs         = -1,
+    max_features = 5
+)
+
+rf  = RandomForestClassifier(**base_params)
+wrf = WeightedRandomForestClassifier(n_estimators=n_trees, max_features=5)
+
+rf .fit(X_tr, y_tr)
+wrf.fit(X_tr, y_tr)
+
+y_pred_rf, metrics_rf  = evaluate(rf , X_te, y_te)
+y_pred_wrf, metrics_wrf = evaluate(wrf, X_te, y_te)
+
+header = f"{'Model':<18}  {'Accuracy':>9}  {'MAE':>8}  {'SE(MAE)':>9}"
+print(header)
+print("-" * len(header))
+print(f"{'RandomForest':<18}  {metrics_rf [0]:9.3f}  {metrics_rf [1]:8.4f}  {metrics_rf [2]:9.4f}")
+print(f"{'WeightedRF':<18}  {metrics_wrf[0]:9.3f}  {metrics_wrf[1]:8.4f}  {metrics_wrf[2]:9.4f}")
+
+# plot the confusion matrices
+classes = np.arange(1, 11)
+
+plot_confusion_matrix(
+    y_true   = y_te,
+    y_pred   = y_pred_rf,
+    classes  = classes,
+    normalize= False,
+    title    = "RandomForest Confusion Matrix",
+    filename = "cm_rf.png"
+)
+
+plot_confusion_matrix(
+    y_true   = y_te,
+    y_pred   = y_pred_wrf,
+    classes  = classes,
+    normalize= False,
+    title    = "WeightedRF Confusion Matrix",
+    filename = "cm_wrf.png"
+)
+
+# conduct binarized evaluations
+brf = train_baseline_binary_rf(
+    X_tr, y_tr,
+    threshold=7,
+    n_estimators=n_trees,
+    max_depth=None,
+    min_samples_split=2,
+    max_features=None,
+    random_state=1
+)
+
+mask_te = (y_te >= 7) | (y_te == 1)
+X_te_bin  = X_te[mask_te]
+y_te_bin  = (y_te[mask_te] >= 7).astype(int)
+
+# binarized the multi-class predictions (binning)
+y_pred_brf = brf.predict(X_te_bin)
+y_pred_wrf_bin = (y_pred_wrf[mask_te] >= 6).astype(int)
+y_pred_rf_bin = (y_pred_rf[mask_te] >= 6).astype(int)
+
+print("Baseline binary RF accuracy    :", accuracy_score(y_te_bin, y_pred_brf))
+print("Weighted RF binarized accuracy :", accuracy_score(y_te_bin, y_pred_wrf_bin))
+print("Vanilla RF binarized accuracy  :", accuracy_score(y_te_bin, y_pred_rf_bin))
+
+# construct binarized confusion matrices
 mc_classes = np.arange(1, 11)
 
-# RF: true 0/1 vs original multiclass predictions
 plot_bin_true_multi_pred(
     y_true_bin = y_te_bin,
     y_pred_mc  = y_pred_rf[mask_te],
@@ -236,7 +196,6 @@ plot_bin_true_multi_pred(
     filename    = "cm_rf_bin_vs_mc.png"
 )
 
-# Weighted RF: true 0/1 vs original multiclass predictions
 plot_bin_true_multi_pred(
     y_true_bin = y_te_bin,
     y_pred_mc  = y_pred_wrf[mask_te],

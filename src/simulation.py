@@ -1,56 +1,6 @@
 import numpy as np, pandas as pd
 from scipy.stats import t, gamma, cauchy, weibull_min, poisson, nbinom
 
-'''
-Simple simulated data. Omitted in final report.
-
-def generate_ordinal_data(n, K, p=15, seed=None):
-    """
-    Generate n samples with p=15 features (by default) and ordinal labels {1..K}.
-    Class-conditional feature distributions vary by dimension:
-      - d % 5 == 0: Gaussian with mean = class_position, small variance
-      - d % 5 == 1: Uniform around a class-dependent center
-      - d % 5 == 2: Exponential with class-dependent scale
-      - d % 5 == 3: Bimodal mixture of two Gaussians, mixing weight depends on class
-      - d % 5 == 4: Correlated with the previous feature plus noise
-    """
-    rng = np.random.RandomState(seed)
-    # Sample labels uniformly
-    y = rng.randint(1, K+1, size=n)
-    # Normalize class (0..1)
-    norm_class = (y - 1) / (K - 1)
-    
-    X = np.zeros((n, p))
-    for d in range(p):
-        if d % 5 == 0:
-            # Gaussian: mean = norm_class, variance=0.1
-            X[:, d] = rng.normal(loc=norm_class, scale=0.1, size=n)
-        elif d % 5 == 1:
-            # Uniform: center = norm_class, width=0.4
-            centers = norm_class
-            X[:, d] = rng.uniform(low=centers - 0.2, high=centers + 0.2, size=n)
-        elif d % 5 == 2:
-            # Exponential: scale from 1 to 5 based on class
-            scales = 1.0 + 4.0 * norm_class
-            X[:, d] = rng.exponential(scale=scales, size=n)
-        elif d % 5 == 3:
-            # Bimodal mixture: weight for mode1 = 1 - norm_class
-            w1 = 1 - norm_class
-            mode1 = rng.normal(loc=-1 + 2*norm_class, scale=0.2, size=n)
-            mode2 = rng.normal(loc=+1 - 2*norm_class, scale=0.2, size=n)
-            mix_mask = rng.rand(n) < w1
-            X[:, d] = np.where(mix_mask, mode1, mode2)
-        else:
-            # Correlated with previous dimension (for d>0)
-            if d > 0:
-                X[:, d] = 0.7 * X[:, d-1] + rng.normal(scale=0.1, size=n)
-            else:
-                X[:, d] = rng.normal(size=n)
-    return X, y
-
-'''
-
-
 def generate_driver_mutation_data(
     n: int = 2000,
     K: int = 10,
